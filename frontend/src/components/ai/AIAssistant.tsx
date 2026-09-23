@@ -8,8 +8,11 @@ import {
   Loader2,
   User,
   RotateCcw,
+  KeyRound,
 } from 'lucide-react';
 import { AnalysisResponse } from '../../types/analysis';
+import { getStoredGeminiApiKey, isGeminiConfigured } from '../../services/gemini';
+import { GeminiSettingsModal } from '../AIAssistant/GeminiSettingsModal';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface Message {
@@ -23,7 +26,6 @@ interface AIAssistantProps {
 }
 
 // ── Gemini call (browser-side, no SDK) ────────────────────────────────────
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
 const GEMINI_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
@@ -32,8 +34,9 @@ async function askGemini(
   history: Message[],
   userMessage: string
 ): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    return "No Gemini API key found. Please set VITE_GEMINI_API_KEY in your .env file and restart the dev server.";
+  const apiKey = getStoredGeminiApiKey();
+  if (!apiKey) {
+    return "No Gemini API key found. Please click the key icon (🔑) in the header to enter your Google Gemini API key.";
   }
 
   const contents: { role: string; parts: { text: string }[] }[] = [
@@ -46,7 +49,7 @@ async function askGemini(
     { role: 'user', parts: [{ text: userMessage }] },
   ];
 
-  const res = await fetch(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+  const res = await fetch(`${GEMINI_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -136,6 +139,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ analysis }) => {
   const welcomeText = `Hi! I'm MathBot — your AI tutor for this analysis.\n\nI can explain the linear algebra behind ${analysis.student_name}'s results, clarify concepts like rank, basis, and Gram-Schmidt, or give academic insights. Ask me anything!`;
 
   const [isOpen, setIsOpen] = useState(false);
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     { role: 'assistant', text: welcomeText, timestamp: new Date() },
   ]);
@@ -231,6 +235,18 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ analysis }) => {
           </div>
           <div className="flex items-center gap-1.5">
             <button
+              onClick={() => setIsKeyModalOpen(true)}
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 transition-colors relative"
+              title="Gemini API Key Settings"
+            >
+              <KeyRound className="w-3.5 h-3.5 text-cyan-400" />
+              <span
+                className={`absolute top-1 right-1 w-1.5 h-1.5 rounded-full ${
+                  isGeminiConfigured() ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'
+                }`}
+              />
+            </button>
+            <button
               onClick={resetChat}
               className="p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-700/60 transition-colors"
               title="Reset conversation"
@@ -317,6 +333,12 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({ analysis }) => {
             Powered by Gemini · Press Enter to send
           </p>
         </div>
+
+        {/* Gemini API Key Settings Modal */}
+        <GeminiSettingsModal
+          isOpen={isKeyModalOpen}
+          onClose={() => setIsKeyModalOpen(false)}
+        />
       </div>
     </>
   );

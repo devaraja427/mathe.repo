@@ -122,6 +122,7 @@ export const AppContent: React.FC = () => {
       <AIAssistant
         currentPage={currentPage}
         onNavigate={setCurrentPage}
+        currentAnalysis={currentAnalysis}
       />
     </div>
   );

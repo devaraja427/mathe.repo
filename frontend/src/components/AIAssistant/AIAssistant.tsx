@@ -1,13 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Sparkles, MessageSquare } from 'lucide-react';
 import { ChatMessageItem, ConversationTurn } from '../../types/chat';
+import { AnalysisResponse } from '../../types/analysis';
 import { sendAIChatMessage } from '../../services/api';
+import { isGeminiConfigured, chatWithGemini } from '../../services/gemini';
 import { ChatWindow } from './ChatWindow';
 import aiAvatar from '../../assets/ai-avatar.jpg';
 
 interface AIAssistantProps {
   currentPage: string;
   onNavigate: (page: string) => void;
+  currentAnalysis?: AnalysisResponse | null;
 }
 
 const STORAGE_KEY = 'ai_assistant_conversation_v1';
@@ -15,17 +18,20 @@ const STORAGE_KEY = 'ai_assistant_conversation_v1';
 const INITIAL_WELCOME_MESSAGE: ChatMessageItem = {
   id: 'msg-welcome',
   role: 'assistant',
-  content: "Hi! 👋 I'm your AI Assistant. How can I help you today?",
+  content: "Hi! 👋 I'm your AI Assistant. How can I help you today? You can ask about linear algebra concepts, your analysis results, or site navigation.",
   timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
 };
 
 export const AIAssistant: React.FC<AIAssistantProps> = ({
   currentPage,
   onNavigate,
+  currentAnalysis,
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [isMinimized, setIsMinimized] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isGeminiActive, setIsGeminiActive] = useState<boolean>(() => isGeminiConfigured());
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(false);
   const [messages, setMessages] = useState<ChatMessageItem[]>(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY);
@@ -69,7 +75,7 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
     setMessages(updatedMessages);
     setIsLoading(true);
 
-    // Build conversation history for API context (excluding errors & welcome)
+    // Build conversation history for context (excluding errors & welcome)
     const conversationTurns: ConversationTurn[] = updatedMessages
       .filter((m) => !m.isError && m.id !== 'msg-welcome')
       .slice(-10)
@@ -79,11 +85,29 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
       }));
 
     try {
-      const reply = await sendAIChatMessage(
-        text.trim(),
-        conversationTurns,
-        currentPage
-      );
+      let reply: string;
+
+      if (isGeminiActive) {
+        // Send directly to Google Gemini API
+        reply = await chatWithGemini(
+          text.trim(),
+          conversationTurns,
+          currentPage,
+          currentAnalysis
+        );
+      } else {
+        // Attempt backend endpoint
+        try {
+          reply = await sendAIChatMessage(
+            text.trim(),
+            conversationTurns,
+            currentPage
+          );
+        } catch (backendErr) {
+          // If backend is unavailable and no Gemini key is set, give helpful advice
+          reply = "I'm having trouble connecting to the backend. You can enable full AI capabilities by configuring a Google Gemini API key using the key icon (🔑) in the header.";
+        }
+      }
 
       const aiMessage: ChatMessageItem = {
         id: `ai-${Date.now()}`,
@@ -98,10 +122,15 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
       setMessages((prev) => [...prev, aiMessage]);
     } catch (err: any) {
       console.warn('AI chat error:', err);
+      const isInvalidKey = err?.message?.includes('Invalid Gemini API Key');
+      const errorContent = isInvalidKey
+        ? 'Your Gemini API key appears to be invalid. Please click the 🔑 key icon in the header to update your API key.'
+        : `Error: ${err?.message || "Sorry, I'm having trouble connecting right now. Please try again."}`;
+
       const errorMessage: ChatMessageItem = {
         id: `err-${Date.now()}`,
         role: 'assistant',
-        content: "Sorry, I'm having trouble connecting right now. Please try again.",
+        content: errorContent,
         timestamp: new Date().toLocaleTimeString([], {
           hour: '2-digit',
           minute: '2-digit',
@@ -199,6 +228,11 @@ export const AIAssistant: React.FC<AIAssistantProps> = ({
         onNewChat={handleNewChat}
         onClearChat={handleClearChat}
         currentPage={currentPage}
+        isGeminiActive={isGeminiActive}
+        isKeyModalOpen={isKeyModalOpen}
+        onOpenKeySettings={() => setIsKeyModalOpen(true)}
+        onCloseKeyModal={() => setIsKeyModalOpen(false)}
+        onKeyChange={(active) => setIsGeminiActive(active)}
       />
     </>
   );
